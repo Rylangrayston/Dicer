@@ -35,16 +35,21 @@
 
 import bpy
 import mathutils
+import math
 from mathutils import Vector
-
+import traceback
 
 class SliceIt(object):
-    def __init__(self, writer, layer_thickness = 0.0025, first_layer = 1, last_layer = 2000):
-        self.first_layer = first_layer
-        self.last_layer = last_layer
+    def __init__(self, writer, layer_thickness = 0.0025):
+        self.first_layer = 1
         self.layer_thickness = layer_thickness
-        print('Running with\nFirst Layer: %d\nLast Layer : %d\nThickness  : %f ' % (self.first_layer, self.last_layer, self.layer_thickness))
+        print('Thickness  : %f ' % self.layer_thickness)
 
+    def _get_layers(self, original):
+        z_size = original.dimensions.z
+        layers = math.ceil(z_size / self.layer_thickness)
+        print('Layers: %d'  % layers)
+        return layers
 
     def run(self):
         print('Starting Calculations')
@@ -75,7 +80,7 @@ class SliceIt(object):
 
         vlen = len(me.vertices)
         try:
-            for ln in range(self.first_layer, self.last_layer + 1):
+            for ln in range(self.first_layer, self._get_layers(original)):
                 layer_height = minz + ln * self.layer_thickness
                 
                 if layer_height < maxz:
@@ -125,7 +130,9 @@ class SliceIt(object):
                     writer.moveToHeight(layer_height)
                     writer.drawPath(coords)
             original.data = origme
-        except:
+        except Exception as e:
+            print(traceback.format_exc())
+            print('BOOM: %s' % e)
             original.data = origme
 
 class MoveModes:
@@ -186,6 +193,6 @@ class GcodeWriter(object):
 
 output_file = open('output.gcode','w')
 writer = GcodeWriter(output_file, 100, 600)
-slice_it = SliceIt(writer)
+slice_it = SliceIt(writer, 0.01)
 slice_it.run()
 print('Complete')
