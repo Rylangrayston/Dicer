@@ -191,8 +191,15 @@ class GcodeWriter(object):
         self._file.write('G1 X%.2f Y%.2f F%.2f\n' % (location[0], location[1], rate))
         self._current_location = location
 
-output_file = open('output.gcode','w')
-writer = GcodeWriter(output_file, 100, 600)
-slice_it = SliceIt(writer, 0.01)
+path = 'output.gcode'
+feed_rate = 100
+rapid_rate = 600
+slice_thinkness = 0.1
+
+from os.path import expanduser, join
+home = expanduser("~")
+output_file = open(join(home,path),'w')
+writer = GcodeWriter(output_file, feed_rate, rapid_rate)
+slice_it = SliceIt(writer, slice_thinkness)
 slice_it.run()
 print('Complete')
