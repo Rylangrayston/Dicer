@@ -44,21 +44,24 @@ class DiceIt(object):
         self.first_layer = 1
         self.layer_thickness = layer_thickness
         self.original = bpy.context.active_object
-        if (last_layer == 0):
-        	self._last_layer = self._get_layers(self.original)
-       	else:
-       		self._last_layer = last_layer
-        print('Thickness  : %f ' % self.layer_thickness)
+        if (self.original == None):
+            raise Exception('No object selected')
+        self.total_layers = math.ceil(self.original.dimensions.z / self.layer_thickness)
 
-    def _get_layers(self, original):
-        z_size = original.dimensions.z
-        layers = math.ceil(z_size / self.layer_thickness)
-        print('Layers: %d'  % layers)
-        return layers
+        if (last_layer == 0):
+        	self._last_layer = self.total_layers
+       	elif (last_layer <= self.total_layers):
+       		self._last_layer = last_layer
+       	else:
+       		self._last_layer = self.total_layers
+
+        print('Thickness   : %f' % self.layer_thickness)
+        print('Total Layers: %d'  % self.total_layers)
+
 
     def run(self):
         print('Starting Calculations')
-        origme = self.original.to_mesh(bpy.context.scene, apply_modifiers = False, settings = 'PREVIEW', calc_tessface=False, calc_undeformed=False)
+        original_mesh = self.original.to_mesh(bpy.context.scene, apply_modifiers = False, settings = 'PREVIEW', calc_tessface=False, calc_undeformed=False)
         self.original.data = self.original.to_mesh(bpy.context.scene, apply_modifiers = True, settings = 'PREVIEW', calc_tessface=False, calc_undeformed=False)
         omw = self.original.matrix_world
         zps = [(omw*vert.co)[2] for vert in self.original.data.vertices]
@@ -133,11 +136,11 @@ class DiceIt(object):
                         coords.append((omw*self.original.data.vertices[sv].co)[0:2])
                     writer.moveToHeight(layer_height)
                     writer.drawPath(coords)
-            self.original.data = origme
+            self.original.data = original_mesh
         except Exception as e:
             print(traceback.format_exc())
-            print('BOOM: %s' % e)
-            self.original.data = origme
+            print('Dang it Broke: The model may be leaky')
+            self.original.data = original_mesh
 
 class MoveModes:
     RAPID = 'rapid'
