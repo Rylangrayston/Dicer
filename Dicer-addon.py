@@ -37,7 +37,6 @@ import bpy
 import mathutils
 import math
 from mathutils import Vector
-import traceback
 
 class DiceIt(object):
     def __init__(self, writer, layer_thickness, first_layer = 1, last_layer = 0):
@@ -68,20 +67,12 @@ class DiceIt(object):
         maxz, minz = max(zps), min(zps)
 
 
-        o = 0
-        for sob in bpy.context.scene.objects:
-            try:
-                if sob['Slices']:
-                    ob, me, o = sob, sob.data, 1
-            except:
-                pass
+        if (bpy.context.scene.objects.get('Slices')):
+        	me = bpy.context.scene.objects.get('Slices').data
+        else:
+        	me = bpy.data.meshes.new('Slices')
+        	bpy.context.scene.objects.link(bpy.data.objects.new('Slices', me))
 
-
-        if o == 0:
-            me = bpy.data.meshes.new('Slices')
-            ob, ob['Slices']  = bpy.data.objects.new('Slices', me), 1
-            bpy.context.scene.objects.link(ob)
-            
         bpy.context.scene.objects.active = self.original
 
 
@@ -138,7 +129,6 @@ class DiceIt(object):
                     writer.drawPath(coords)
             self.original.data = original_mesh
         except Exception as e:
-            print(traceback.format_exc())
             print('Dang it Broke: The model may be leaky')
             self.original.data = original_mesh
 
