@@ -1,0 +1,59 @@
+Interface between Blender slicer and Peachy Printer
+
+The Peachy Printer works by drawing one layer at a time, each layer on top of the other. The software that drives the printer expects GCODE instructions, like those made by other slicers such as Skeinforge and Slic3r (and intended for other FDM 3D printers). The important gcodes that the Peachy Printer’s gcode-to-wav conversion software interprets are (taken from http://reprap.org/wiki/G-code):
+
+
+G0 X? Y? Z? -- Moves the tool rapidly to the given X/Y/Z location. The movement speed is determined by the machine itself. This is used for moving quickly between paths. NOTE: We treat this the same as G1 because the RepRap firmware does and we’ve found slicers may use either G0 or G1 interchangeably.
+
+G1 X? Y? Z? F? -- Moves the tool to the given X/Y/Z location at the given feed rate. X, Y, and Z are in millimeters and F is in millimeters per minute. There may also be an optional E parameter that determines the speed of the extruder feed, but we don’t support that parameter. Note that common FDM printers don’t use the G0 (rapid) command, but instead specify different F speeds for rapid and feed movements, so we are currently working with that same format.
+
+For both G commands, parameters are optional. If unspecified, it uses the last value specified. For example, these commands are equivalent:
+
+G1 X0.0 Y1.2 Z3.4 F100
+
+and
+
+G1 F100
+G1 X0.0 Y1.2 Z3.4
+
+M101 -- Turn extruder on -- This is used by RepRap to indicate when to turn on the extruder. We interpret this to mean that we are now feeding (attempting to draw) rather than rapiding (attempting to move without drawing).
+
+M103 -- Turn extruder off -- This is used by RepRap to indicate when to turn off the extruder. We interpret this to mean that we are now rapiding (attempting to move without drawing) rather than feeding (attempting to draw).
+
+We can build our own GCODE instructions based on knowledge of the machine, but we need to know the paths to follow while doing so. This is where the Blender slicer comes in. We want the following:
+
+    a list of X,Y vertices, in order, following a polygonal path. Each drawn path should be its own list. Rapids will automatically be inserted between paths.
+    A separate indication of when we move up the Z axis to a new height and what the height is. Note that we can only move up the Z axis, not back down. 
+
+
+
+An example interface that we will provide on our end is:
+
+def drawPath(path):
+“””path -- list of vertices, (x,y) tuples, where x and y are floats representing millimeters from the origin”””
+
+def moveToHeight(height):
+“””height -- float -- height of the new layer in millimeters from the base of the object”””
+
+Here’s an example what would be input and what would be generated. Given calls of the following:
+moveToHeight(0.1)
+drawPath([(0.0, 0.0), (1.0, 0.0), (0.5, 0.5), (0.0, 0.0)])
+drawPath([(0.0, 1.0), (1.0, 1.0), (0.5, 0.5), (0.0, 1.0)])
+moveToHeight(0.2)
+
+The generated GCODE will be something like this (assuming feed rate is 100mm/min and rapid rate is 900mm/min):
+M103
+G1 Z0.1 F900
+G1 X0.0 Y0.0 F900
+M101
+G1 X1.0 Y0.0 F100
+G1 X0.5 Y0.5 F100
+G1 X0.0 Y0.0 F100
+M103
+G1 X0.0 Y1.0 F900
+M101
+G1 X1.0 Y1.0 F100
+G1 X0.5 Y0.5 F100
+G1 X0.0 Y1.0 F100
+M103
+G1 Z0.2 F900

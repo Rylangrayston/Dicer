@@ -1,0 +1,87 @@
+import bpy
+import mathutils
+from mathutils import Vector
+
+
+# Layer thickness, first layer, last layer
+lw, fl, ll = 0.0025, 1, 20
+
+
+original = bpy.context.active_object
+origme = original.to_mesh(bpy.context.scene, apply_modifiers = False, settings = 'PREVIEW', calc_tessface=False, calc_undeformed=False)
+original.data = original.to_mesh(bpy.context.scene, apply_modifiers = True, settings = 'PREVIEW', calc_tessface=False, calc_undeformed=False)
+omw = original.matrix_world
+zps = [(omw*vert.co)[2] for vert in original.data.vertices]
+maxz, minz = max(zps), min(zps)
+
+
+o = 0
+for sob in bpy.context.scene.objects:
+    try:
+        if sob['Slices']:
+            ob, me, o = sob, sob.data, 1
+    except:
+        pass
+
+
+if o == 0:
+    me = bpy.data.meshes.new('Slices')
+    ob, ob['Slices']  = bpy.data.objects.new('Slices', me), 1
+    bpy.context.scene.objects.link(ob)
+    
+bpy.context.scene.objects.active = original
+
+
+vlen = len(me.vertices)
+try:
+    for ln in range(fl, ll + 1):
+        lh = minz + ln*lw
+        
+        if lh < maxz:
+            bpy.ops.object.mode_set(mode = 'EDIT')
+            bpy.ops.mesh.select_all(action = 'SELECT')
+            bpy.ops.mesh.bisect(plane_co=(0.0, 0.0, lh), plane_no=(0.0, 0.0, 1), use_fill=False, clear_inner=False, clear_outer=False, threshold=0.0001, xstart=0, xend=0, ystart=0, yend=0, cursor=1002)
+            bpy.ops.object.mode_set(mode = 'OBJECT')
+            coords, vlist, elist = [], [], []
+            sliceverts = [vert for vert in original.data.vertices if vert.select== True]
+            sliceedges = [edge for edge in original.data.edges if edge.select == True]
+
+
+            for vert in sliceverts:
+                me.vertices.add(1)
+                me.vertices[-1].co = omw*vert.co
+       
+            for edge in sliceedges:
+                me.edges.add(1)
+                me.edges[-1].vertices[0] = me.vertices[[vert.index for vert in sliceverts].index(edge.vertices[0])+vlen].index
+                me.edges[-1].vertices[1] = me.vertices[[vert.index for vert in sliceverts].index(edge.vertices[1])+vlen].index
+            vlen = len(me.vertices)
+                
+            elist.append(sliceedges[0]) # Add this edge to the edge list
+            vlist.append(elist[0].vertices[0]) # Add the edges vertices to the vertex list
+            vlist.append(elist[0].vertices[1])
+            while len(vlist) < len(sliceverts):
+                va = 0
+                for e in sliceedges:
+                     if e.vertices[0] not in vlist and e.vertices[1] == vlist[-1]: # If a new edge contains the last vertex in the vertex list, add the other edge vertex
+                         va = 1
+                         vlist.append(e.vertices[0])
+                         elist.append(e)
+                     if e.vertices[1] not in vlist and e.vertices[0] == vlist[-1]:
+                         va = 1
+                         vlist.append(e.vertices[1])
+                         elist.append(e)
+                     elif e.vertices[1] in vlist and e.vertices[0] in vlist and e not in elist: # The last edge already has it's two vertices in the vertex list so just add the edge
+                         elist.append(e)
+                         va = 1
+                if va == 0: #If no new edge was added a new ring of edges needs to be started
+                     e1 = [e for e in sliceedges if e not in elist][0] # Select a new edge not in the edge list
+                     elist.append(e1)
+                     vlist.append(e1.vertices[0])
+                     vlist.append(e1.vertices[1])
+            for sv in vlist:
+                coords.append((omw*original.data.vertices[sv].co)[0:2])
+            print(coords)
+    original.data = origme
+except:
+    original.data = origme
