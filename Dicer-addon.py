@@ -33,74 +33,159 @@
 # hopefully this actually becomes blender internal but for now here is a quick script that shows that its already possible with a little bpy.
 # Chears, Rylan Grayston.
 
+import bpy
+import mathutils
+from mathutils import Vector
 
 
-import bpy  
-scn = bpy.context.scene
-
-objToSlice = bpy.context.active_object.name
-
-#scn.objects.active = bpy.data.objects[objToSlice.name]  
-bpy.context.area.type = 'VIEW_3D'
-
+class SliceIt(object):
+    def __init__(self, writer, layer_thickness = 0.0025, first_layer = 1, last_layer = 2000):
+        self.first_layer = first_layer
+        self.last_layer = last_layer
+        self.layer_thickness = layer_thickness
+        print('Running with\nFirst Layer: %d\nLast Layer : %d\nThickness  : %f ' % (self.first_layer, self.last_layer, self.layer_thickness))
 
 
-# I cant seem to get bisect to take a variable in a loop. Iv commmented this code out.
-# there is no error but bisect() just uses the first value of i over and over. 
-#for i in range(0, 5):  
-#    bpy.data.scenes[0].update()
-#    bpy.ops.object.duplicate()
-#    bpy.ops.object.editmode_toggle()
-#    i = 0
-#    bpy.ops.mesh.bisect(plane_co=(0.0, 0.0, i), plane_no=(0.0, 0.0, 0.9), use_fill=False, clear_inner=True, clear_outer=True, threshold=0.0001)
-#    
-#    bpy.ops.object.editmode_toggle()
-#    scn.objects.active = bpy.data.objects[objToSlice]  
+    def run(self):
+        print('Starting Calculations')
+        original = bpy.context.active_object
+        origme = original.to_mesh(bpy.context.scene, apply_modifiers = False, settings = 'PREVIEW', calc_tessface=False, calc_undeformed=False)
+        original.data = original.to_mesh(bpy.context.scene, apply_modifiers = True, settings = 'PREVIEW', calc_tessface=False, calc_undeformed=False)
+        omw = original.matrix_world
+        zps = [(omw*vert.co)[2] for vert in original.data.vertices]
+        maxz, minz = max(zps), min(zps)
 
 
-# instead ill just hard code what the for loop would do with the following repetative code:
-bpy.ops.object.duplicate()
-##############################iter 1
-bpy.data.scenes[0].update()
-bpy.ops.object.duplicate()
-bpy.ops.object.editmode_toggle()
-bpy.ops.mesh.bisect(plane_co=(0.0, 0.0, 0), plane_no=(0.0, 0.0, 0.9), use_fill=False, clear_inner=True, clear_outer=True, threshold=0.0001)
-bpy.ops.object.editmode_toggle()
-scn.objects.active = bpy.data.objects[objToSlice]  
-
-###############################iter 2
-bpy.data.scenes[0].update()
-bpy.ops.object.duplicate()
-bpy.ops.object.editmode_toggle()
-bpy.ops.mesh.bisect(plane_co=(0.0, 0.0, 2), plane_no=(0.0, 0.0, 0.9), use_fill=False, clear_inner=True, clear_outer=True, threshold=0.0001)
-bpy.ops.object.editmode_toggle()
-scn.objects.active = bpy.data.objects[objToSlice]  
+        o = 0
+        for sob in bpy.context.scene.objects:
+            try:
+                if sob['Slices']:
+                    ob, me, o = sob, sob.data, 1
+            except:
+                pass
 
 
+        if o == 0:
+            me = bpy.data.meshes.new('Slices')
+            ob, ob['Slices']  = bpy.data.objects.new('Slices', me), 1
+            bpy.context.scene.objects.link(ob)
+            
+        bpy.context.scene.objects.active = original
 
-bpy.context.area.type = 'TEXT_EDITOR'
+
+        vlen = len(me.vertices)
+        try:
+            for ln in range(self.first_layer, self.last_layer + 1):
+                layer_height = minz + ln * self.layer_thickness
+                
+                if layer_height < maxz:
+                    bpy.ops.object.mode_set(mode = 'EDIT')
+                    bpy.ops.mesh.select_all(action = 'SELECT')
+                    bpy.ops.mesh.bisect(plane_co=(0.0, 0.0, layer_height), plane_no=(0.0, 0.0, 1), use_fill=False, clear_inner=False, clear_outer=False, threshold=0.0001, xstart=0, xend=0, ystart=0, yend=0, cursor=1002)
+                    bpy.ops.object.mode_set(mode = 'OBJECT')
+                    coords, vlist, elist = [], [], []
+                    sliceverts = [vert for vert in original.data.vertices if vert.select== True]
+                    sliceedges = [edge for edge in original.data.edges if edge.select == True]
 
 
+                    for vert in sliceverts:
+                        me.vertices.add(1)
+                        me.vertices[-1].co = omw*vert.co
+               
+                    for edge in sliceedges:
+                        me.edges.add(1)
+                        me.edges[-1].vertices[0] = me.vertices[[vert.index for vert in sliceverts].index(edge.vertices[0])+vlen].index
+                        me.edges[-1].vertices[1] = me.vertices[[vert.index for vert in sliceverts].index(edge.vertices[1])+vlen].index
+                    vlen = len(me.vertices)
+                        
+                    elist.append(sliceedges[0]) # Add this edge to the edge list
+                    vlist.append(elist[0].vertices[0]) # Add the edges vertices to the vertex list
+                    vlist.append(elist[0].vertices[1])
+                    while len(vlist) < len(sliceverts):
+                        va = 0
+                        for e in sliceedges:
+                             if e.vertices[0] not in vlist and e.vertices[1] == vlist[-1]: # If a new edge contains the last vertex in the vertex list, add the other edge vertex
+                                 va = 1
+                                 vlist.append(e.vertices[0])
+                                 elist.append(e)
+                             if e.vertices[1] not in vlist and e.vertices[0] == vlist[-1]:
+                                 va = 1
+                                 vlist.append(e.vertices[1])
+                                 elist.append(e)
+                             elif e.vertices[1] in vlist and e.vertices[0] in vlist and e not in elist: # The last edge already has it's two vertices in the vertex list so just add the edge
+                                 elist.append(e)
+                                 va = 1
+                        if va == 0: #If no new edge was added a new ring of edges needs to be started
+                             e1 = [e for e in sliceedges if e not in elist][0] # Select a new edge not in the edge list
+                             elist.append(e1)
+                             vlist.append(e1.vertices[0])
+                             vlist.append(e1.vertices[1])
+                    for sv in vlist:
+                        coords.append((omw*original.data.vertices[sv].co)[0:2])
+                    writer.moveToHeight(layer_height)
+                    writer.drawPath(coords)
+            original.data = origme
+        except:
+            original.data = origme
 
+class MoveModes:
+    RAPID = 'rapid'
+    FEED = 'feed'
 
+class GcodeWriter(object):
+    """Takes layer information from the Blender slicer and saves it to a file in GCODE format."""
+    def __init__(self, file, feed_rate, rapid_rate):
+        self._file = file
+        self._feed_rate = feed_rate
+        self._rapid_rate = rapid_rate
+        self._move_mode = None
+        self._current_height = None
+        self._current_location = None
 
-# bpy.ops.mesh.bisect(plane_co=(0.0, 0.0, 0.0), plane_no=(0.0, 0.0, 0.0), use_fill=False, clear_inner=False, clear_outer=False, threshold=0.0001, xstart=0, xend=0, ystart=0, yend=0, cursor=1002)
-#
-#    Cut geometry along a plane (click-drag to define plane)
-#    Parameters:	
-#
-#        plane_co (float array of 3 items in [-inf, inf], (optional)) – Plane Point, A point on the plane
-#        plane_no (float array of 3 items in [-inf, inf], (optional)) – Plane Normal, The direction the plane points
-#        use_fill (boolean, (optional)) – Fill, Fill in the cut
-#        clear_inner (boolean, (optional)) – Clear Inner, Remove geometry behind the plane
-#        clear_outer (boolean, (optional)) – Clear Outer, Remove geometry in front of the plane
-#        threshold (float in [0, 10], (optional)) – Axis Threshold
-#        xstart (int in [-inf, inf], (optional)) – X Start
-#        xend (int in [-inf, inf], (optional)) – X End
-#        ystart (int in [-inf, inf], (optional)) – Y Start
-#        yend (int in [-inf, inf], (optional)) – Y End
-#        cursor (int in [0, inf], (optional)) – Cursor, Mouse cursor style to use during the modal operator
-#
-#
-#
-#
+    def moveToHeight(self, height):
+        if self._current_height is not None:
+            if height < self._current_height:
+                raise AssertionError('Requested to move back down from height %f to height %f!' % (
+                    self._current_height, height
+                ))
+            if height == self._current_height:
+                return
+        self._set_move_mode(MoveModes.RAPID)
+        self._file.write('G1 Z%.2f F%.2f\n' % (height, self._rapid_rate))
+        self._current_height = height
+
+    def drawPath(self, path):
+        if self._current_location is None or self._current_location != path[0]:
+            self._set_move_mode(MoveModes.RAPID)
+            self._move_to_location(path[0])
+        self._set_move_mode(MoveModes.FEED)
+        for location in path[1:]:
+            self._move_to_location(location)
+
+    def _set_move_mode(self, mode):
+        if self._move_mode != mode:
+            if mode == MoveModes.RAPID:
+                self._file.write('M103\n')
+            elif mode == MoveModes.FEED:
+                self._file.write('M101\n')
+            else:
+                raise AssertionError('Unknown move mode "%s"' % mode)
+            self._move_mode = mode
+
+    def _move_to_location(self, location):
+        if location == self._current_location:
+            return
+        if self._move_mode == MoveModes.FEED:
+            rate = self._feed_rate
+        elif self._move_mode == MoveModes.RAPID:
+            rate = self._rapid_rate
+        else:
+            raise AssertionError('Unexpected move mode "%s"' % self._move_mode)
+        self._file.write('G1 X%.2f Y%.2f F%.2f\n' % (location[0], location[1], rate))
+        self._current_location = location
+
+output_file = open('output.gcode','w')
+writer = GcodeWriter(output_file, 100, 600)
+slice_it = SliceIt(writer)
+slice_it.run()
+print('Complete')
