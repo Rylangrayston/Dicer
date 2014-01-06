@@ -39,10 +39,15 @@ import math
 from mathutils import Vector
 import traceback
 
-class SliceIt(object):
-    def __init__(self, writer, layer_thickness = 0.0025):
+class DiceIt(object):
+    def __init__(self, writer, layer_thickness, first_layer = 1, last_layer = 0):
         self.first_layer = 1
         self.layer_thickness = layer_thickness
+        self.original = bpy.context.active_object
+        if (last_layer == 0):
+        	self._last_layer = self._get_layers(self.original)
+       	else:
+       		self._last_layer = last_layer
         print('Thickness  : %f ' % self.layer_thickness)
 
     def _get_layers(self, original):
@@ -53,11 +58,10 @@ class SliceIt(object):
 
     def run(self):
         print('Starting Calculations')
-        original = bpy.context.active_object
-        origme = original.to_mesh(bpy.context.scene, apply_modifiers = False, settings = 'PREVIEW', calc_tessface=False, calc_undeformed=False)
-        original.data = original.to_mesh(bpy.context.scene, apply_modifiers = True, settings = 'PREVIEW', calc_tessface=False, calc_undeformed=False)
-        omw = original.matrix_world
-        zps = [(omw*vert.co)[2] for vert in original.data.vertices]
+        origme = self.original.to_mesh(bpy.context.scene, apply_modifiers = False, settings = 'PREVIEW', calc_tessface=False, calc_undeformed=False)
+        self.original.data = self.original.to_mesh(bpy.context.scene, apply_modifiers = True, settings = 'PREVIEW', calc_tessface=False, calc_undeformed=False)
+        omw = self.original.matrix_world
+        zps = [(omw*vert.co)[2] for vert in self.original.data.vertices]
         maxz, minz = max(zps), min(zps)
 
 
@@ -75,12 +79,12 @@ class SliceIt(object):
             ob, ob['Slices']  = bpy.data.objects.new('Slices', me), 1
             bpy.context.scene.objects.link(ob)
             
-        bpy.context.scene.objects.active = original
+        bpy.context.scene.objects.active = self.original
 
 
         vlen = len(me.vertices)
         try:
-            for ln in range(self.first_layer, self._get_layers(original)):
+            for ln in range(self.first_layer, self._last_layer):
                 layer_height = minz + ln * self.layer_thickness
                 
                 if layer_height < maxz:
@@ -89,8 +93,8 @@ class SliceIt(object):
                     bpy.ops.mesh.bisect(plane_co=(0.0, 0.0, layer_height), plane_no=(0.0, 0.0, 1), use_fill=False, clear_inner=False, clear_outer=False, threshold=0.0001, xstart=0, xend=0, ystart=0, yend=0, cursor=1002)
                     bpy.ops.object.mode_set(mode = 'OBJECT')
                     coords, vlist, elist = [], [], []
-                    sliceverts = [vert for vert in original.data.vertices if vert.select== True]
-                    sliceedges = [edge for edge in original.data.edges if edge.select == True]
+                    sliceverts = [vert for vert in self.original.data.vertices if vert.select== True]
+                    sliceedges = [edge for edge in self.original.data.edges if edge.select == True]
 
 
                     for vert in sliceverts:
@@ -126,14 +130,14 @@ class SliceIt(object):
                              vlist.append(e1.vertices[0])
                              vlist.append(e1.vertices[1])
                     for sv in vlist:
-                        coords.append((omw*original.data.vertices[sv].co)[0:2])
+                        coords.append((omw*self.original.data.vertices[sv].co)[0:2])
                     writer.moveToHeight(layer_height)
                     writer.drawPath(coords)
-            original.data = origme
+            self.original.data = origme
         except Exception as e:
             print(traceback.format_exc())
             print('BOOM: %s' % e)
-            original.data = origme
+            self.original.data = origme
 
 class MoveModes:
     RAPID = 'rapid'
@@ -191,6 +195,8 @@ class GcodeWriter(object):
         self._file.write('G1 X%.2f Y%.2f F%.2f\n' % (location[0], location[1], rate))
         self._current_location = location
 
+#manual run
+
 path = 'output.gcode'
 feed_rate = 100
 rapid_rate = 600
@@ -200,6 +206,6 @@ from os.path import expanduser, join
 home = expanduser("~")
 output_file = open(join(home,path),'w')
 writer = GcodeWriter(output_file, feed_rate, rapid_rate)
-slice_it = SliceIt(writer, slice_thinkness)
-slice_it.run()
+dice_it = DiceIt(writer, slice_thinkness)
+dice_it.run()
 print('Complete')
