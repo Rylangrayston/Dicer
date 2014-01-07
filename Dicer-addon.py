@@ -35,47 +35,50 @@
 
 import bpy
 import mathutils
+import math
 from mathutils import Vector
 
-
-class SliceIt(object):
-    def __init__(self, writer, layer_thickness = 0.0025, first_layer = 1, last_layer = 2000):
-        self.first_layer = first_layer
-        self.last_layer = last_layer
+class DiceIt(object):
+    def __init__(self, writer, layer_thickness, first_layer = 1, last_layer = 0):
+        self.first_layer = 1
         self.layer_thickness = layer_thickness
-        print('Running with\nFirst Layer: %d\nLast Layer : %d\nThickness  : %f ' % (self.first_layer, self.last_layer, self.layer_thickness))
+        self.original = bpy.context.active_object
+        if (self.original == None):
+            raise Exception('No object selected')
+        self.total_layers = math.ceil(self.original.dimensions.z / self.layer_thickness)
+
+        if (last_layer == 0):
+        	self._last_layer = self.total_layers
+       	elif (last_layer <= self.total_layers):
+       		self._last_layer = last_layer
+       	else:
+       		self._last_layer = self.total_layers
+
+        print('Thickness   : %f' % self.layer_thickness)
+        print('Total Layers: %d'  % self.total_layers)
 
 
     def run(self):
         print('Starting Calculations')
-        original = bpy.context.active_object
-        origme = original.to_mesh(bpy.context.scene, apply_modifiers = False, settings = 'PREVIEW', calc_tessface=False, calc_undeformed=False)
-        original.data = original.to_mesh(bpy.context.scene, apply_modifiers = True, settings = 'PREVIEW', calc_tessface=False, calc_undeformed=False)
-        omw = original.matrix_world
-        zps = [(omw*vert.co)[2] for vert in original.data.vertices]
+        original_mesh = self.original.to_mesh(bpy.context.scene, apply_modifiers = False, settings = 'PREVIEW', calc_tessface=False, calc_undeformed=False)
+        self.original.data = self.original.to_mesh(bpy.context.scene, apply_modifiers = True, settings = 'PREVIEW', calc_tessface=False, calc_undeformed=False)
+        omw = self.original.matrix_world
+        zps = [(omw*vert.co)[2] for vert in self.original.data.vertices]
         maxz, minz = max(zps), min(zps)
 
 
-        o = 0
-        for sob in bpy.context.scene.objects:
-            try:
-                if sob['Slices']:
-                    ob, me, o = sob, sob.data, 1
-            except:
-                pass
+        if (bpy.context.scene.objects.get('Slices')):
+        	me = bpy.context.scene.objects.get('Slices').data
+        else:
+        	me = bpy.data.meshes.new('Slices')
+        	bpy.context.scene.objects.link(bpy.data.objects.new('Slices', me))
 
-
-        if o == 0:
-            me = bpy.data.meshes.new('Slices')
-            ob, ob['Slices']  = bpy.data.objects.new('Slices', me), 1
-            bpy.context.scene.objects.link(ob)
-            
-        bpy.context.scene.objects.active = original
+        bpy.context.scene.objects.active = self.original
 
 
         vlen = len(me.vertices)
         try:
-            for ln in range(self.first_layer, self.last_layer + 1):
+            for ln in range(self.first_layer, self._last_layer):
                 layer_height = minz + ln * self.layer_thickness
                 
                 if layer_height < maxz:
@@ -84,8 +87,8 @@ class SliceIt(object):
                     bpy.ops.mesh.bisect(plane_co=(0.0, 0.0, layer_height), plane_no=(0.0, 0.0, 1), use_fill=False, clear_inner=False, clear_outer=False, threshold=0.0001, xstart=0, xend=0, ystart=0, yend=0, cursor=1002)
                     bpy.ops.object.mode_set(mode = 'OBJECT')
                     coords, vlist, elist = [], [], []
-                    sliceverts = [vert for vert in original.data.vertices if vert.select== True]
-                    sliceedges = [edge for edge in original.data.edges if edge.select == True]
+                    sliceverts = [vert for vert in self.original.data.vertices if vert.select== True]
+                    sliceedges = [edge for edge in self.original.data.edges if edge.select == True]
 
 
                     for vert in sliceverts:
@@ -121,12 +124,13 @@ class SliceIt(object):
                              vlist.append(e1.vertices[0])
                              vlist.append(e1.vertices[1])
                     for sv in vlist:
-                        coords.append((omw*original.data.vertices[sv].co)[0:2])
+                        coords.append((omw*self.original.data.vertices[sv].co)[0:2])
                     writer.moveToHeight(layer_height)
                     writer.drawPath(coords)
-            original.data = origme
-        except:
-            original.data = origme
+            self.original.data = original_mesh
+        except Exception as e:
+            print('Dang it Broke: The model may be leaky')
+            self.original.data = original_mesh
 
 class MoveModes:
     RAPID = 'rapid'
@@ -184,8 +188,17 @@ class GcodeWriter(object):
         self._file.write('G1 X%.2f Y%.2f F%.2f\n' % (location[0], location[1], rate))
         self._current_location = location
 
-output_file = open('output.gcode','w')
-writer = GcodeWriter(output_file, 100, 600)
-slice_it = SliceIt(writer)
-slice_it.run()
+#manual run
+
+path = 'output.gcode'
+feed_rate = 100
+rapid_rate = 600
+slice_thinkness = 0.1
+
+from os.path import expanduser, join
+home = expanduser("~")
+output_file = open(join(home,path),'w')
+writer = GcodeWriter(output_file, feed_rate, rapid_rate)
+dice_it = DiceIt(writer, slice_thinkness)
+dice_it.run()
 print('Complete')
